@@ -16,7 +16,7 @@ test('invalid event name', async () => {
 
   const eventName = 'not-a-real-event';
   await expect(router.route(eventName)).rejects.toThrowError(
-    `Unknown event type '${eventName}', only 'push', 'pull_request', 'workflow_run', and 'schedule' are supported.`,
+    `Unknown event type '${eventName}', only 'push', 'pull_request', 'pull_request_target', 'workflow_run', 'workflow_dispatch', and 'schedule' are supported.`,
   );
 
   const autoUpdateInstance = (AutoUpdater as jest.Mock).mock.instances[0];
@@ -39,6 +39,16 @@ test('"pull_request" events', async () => {
   expect(AutoUpdater).toHaveBeenCalledTimes(1);
 
   await router.route('pull_request');
+
+  const autoUpdateInstance = (AutoUpdater as jest.Mock).mock.instances[0];
+  expect(autoUpdateInstance.handlePullRequest).toHaveBeenCalledTimes(1);
+});
+
+test('"pull_request_target" events', async () => {
+  const router = new Router(config, {} as WebhookEvent);
+  expect(AutoUpdater).toHaveBeenCalledTimes(1);
+
+  await router.route('pull_request_target');
 
   const autoUpdateInstance = (AutoUpdater as jest.Mock).mock.instances[0];
   expect(autoUpdateInstance.handlePullRequest).toHaveBeenCalledTimes(1);

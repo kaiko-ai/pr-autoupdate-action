@@ -1,4 +1,6 @@
-FROM node:18-alpine as builder
+# Build for linux/amd64 (GitHub Actions runners)
+ARG BUILD_PLATFORM=linux/amd64
+FROM --platform=${BUILD_PLATFORM} node:18-alpine AS builder
 
 RUN mkdir -p /opt/autoupdate/dist
 
@@ -8,7 +10,7 @@ COPY . /opt/autoupdate/
 
 RUN yarn install --frozen-lockfile && yarn run build
 
-FROM node:18-alpine as runner
+FROM --platform=${BUILD_PLATFORM} node:18-alpine AS runner
 
 LABEL com.github.actions.name="Auto-update pull requests with changes from their base branch"
 LABEL com.github.actions.description="A GitHub Action that auto-updates PRs with changes from their base branch"
