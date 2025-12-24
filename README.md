@@ -23,7 +23,7 @@ jobs:
     name: autoupdate
     runs-on: ubuntu-22.04
     steps:
-      - uses: docker://kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
+      - uses: kaiko-ai/pr-autoupdate-action@v1.patch2
         env:
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
 ```
@@ -93,7 +93,7 @@ jobs:
     name: autoupdate
     runs-on: ubuntu-22.04
     steps:
-      - uses: docker://kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
+      - uses: kaiko-ai/pr-autoupdate-action@v1.patch2
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           DRY_RUN: "false"
@@ -123,7 +123,7 @@ jobs:
     name: autoupdate
     runs-on: ubuntu-18.04
     steps:
-      - uses: docker://kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
+      - uses: kaiko-ai/pr-autoupdate-action@v1.patch2
         id: autoupdate
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

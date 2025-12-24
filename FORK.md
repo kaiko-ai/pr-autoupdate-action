@@ -10,6 +10,10 @@ This is a kaiko-ai fork of [chinthakagodawita/autoupdate-action](https://github.
 
 ## Kaiko Modifications
 
+### v1.patch2
+
+- Converted to standard Node.js GitHub Action (no longer requires container)
+
 ### v1.patch1
 
 - Added `pull_request_target` event support in `src/router.ts`
@@ -21,12 +25,13 @@ This is a kaiko-ai fork of [chinthakagodawita/autoupdate-action](https://github.
 
 Tags follow the pattern: `v1.patch{n}`
 
+- `v1.patch2` - Standard Node.js action (recommended)
 - `v1.patch1` - Initial kaiko release with `pull_request_target` support
 
-## Docker Image
+## Usage
 
-```
-kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
+```yaml
+uses: kaiko-ai/pr-autoupdate-action@v1.patch2
 ```
 
 ## Why This Fork Exists
