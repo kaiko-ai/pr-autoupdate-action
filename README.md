@@ -1,8 +1,8 @@
-# autoupdate
+# pr-autoupdate-action
 
-![Tests](https://github.com/chinthakagodawita/autoupdate/workflows/Tests/badge.svg?event=push) [![codecov](https://codecov.io/gh/chinthakagodawita/autoupdate/branch/master/graph/badge.svg)](https://codecov.io/gh/chinthakagodawita/autoupdate)
+> **Kaiko Fork** of [chinthakagodawita/autoupdate-action](https://github.com/chinthakagodawita/autoupdate-action) - see [FORK.md](FORK.md) for details.
 
-**autoupdate** is a GitHub Action that auto-updates pull requests branches whenever changes land on their destination branch.
+**pr-autoupdate-action** is a GitHub Action that auto-updates pull requests branches whenever changes land on their destination branch.
 
 ## Usage
 
@@ -23,7 +23,7 @@ jobs:
     name: autoupdate
     runs-on: ubuntu-22.04
     steps:
-      - uses: docker://chinthakagodawita/autoupdate-action:v1
+      - uses: docker://kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
         env:
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
 ```
@@ -93,7 +93,7 @@ jobs:
     name: autoupdate
     runs-on: ubuntu-22.04
     steps:
-      - uses: docker://chinthakagodawita/autoupdate-action:v1
+      - uses: docker://kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           DRY_RUN: "false"
@@ -123,7 +123,7 @@ jobs:
     name: autoupdate
     runs-on: ubuntu-18.04
     steps:
-      - uses: docker://chinthakagodawita/autoupdate-action:v1
+      - uses: docker://kaikoprivate.azurecr.io/kaiko/infra/pr-autoupdate-action:v1.patch1
         id: autoupdate
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
