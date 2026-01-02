@@ -12,6 +12,10 @@ import {
 import { ConfigLoader } from './config-loader';
 import { Output } from './Output';
 import { isRequestError } from './helpers/isRequestError';
+import {
+  GraphQLPullRequestsResponse,
+  GraphQLPullRequestNode,
+} from './graphql-types';
 
 type PullRequestResponse =
   octokit.Endpoints['GET /repos/{owner}/{repo}/pulls/{pull_number}']['response'];
@@ -40,6 +44,16 @@ export class AutoUpdater {
     const { ref, repository } = this.eventData as PushEvent;
 
     ghCore.info(`Handling push event on ref '${ref}'`);
+
+    // Use GraphQL if enabled via environment variable
+    if (process.env.USE_GRAPHQL_API === 'true') {
+      return await this.pullsWithGraphQL(
+        ref,
+        repository.name,
+        repository.owner.login,
+        repository.owner.name,
+      );
+    }
 
     return await this.pulls(
       ref,
@@ -186,6 +200,159 @@ export class AutoUpdater {
     );
 
     return updated;
+  }
+
+  async pullsWithGraphQL(
+    ref: string,
+    repoName: string,
+    repoOwnerLogin: string,
+    repoOwnerName?: string,
+  ): Promise<number> {
+    if (!ref.startsWith('refs/heads/')) {
+      ghCore.warning('Push event was not on a branch, skipping.');
+      return 0;
+    }
+
+    const baseBranch = ref.replace('refs/heads/', '');
+    const owner = repoOwnerName ?? repoOwnerLogin;
+
+    if (!owner) {
+      ghCore.error('Invalid repository owner provided');
+      return 0;
+    }
+    if (!repoName) {
+      ghCore.error('Invalid repository name provided');
+      return 0;
+    }
+
+    // Dynamically import graphql to avoid ES module issues in tests
+    const { graphql } = await import('@octokit/graphql');
+    const graphqlWithAuth = graphql.defaults({
+      headers: {
+        authorization: `token ${this.config.githubToken()}`,
+      },
+    });
+
+    let updated = 0;
+    let hasNextPage = true;
+    let cursor: string | null = null;
+
+    while (hasNextPage) {
+      const result: GraphQLPullRequestsResponse = await graphqlWithAuth({
+        query: `
+          query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
+            repository(owner: $owner, name: $repo) {
+              pullRequests(
+                baseRefName: $base
+                states: [OPEN]
+                first: 100
+                after: $cursor
+                orderBy: {field: UPDATED_AT, direction: DESC}
+              ) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  number
+                  state
+                  merged
+                  mergeable
+                  draft
+                  labels(first: 10) {
+                    nodes {
+                      name
+                    }
+                  }
+                  baseRef {
+                    name
+                    target {
+                      ... on Commit {
+                        oid
+                      }
+                    }
+                  }
+                  headRef {
+                    name
+                    target {
+                      ... on Commit {
+                        oid
+                      }
+                    }
+                  }
+                  headRepository {
+                    name
+                    owner {
+                      login
+                    }
+                  }
+                  comparison(headRef: $base) {
+                    aheadBy
+                    behindBy
+                    status
+                  }
+                }
+              }
+            }
+          }
+        `,
+        owner,
+        repo: repoName,
+        base: baseBranch,
+        cursor,
+      });
+
+      const prs = result.repository.pullRequests.nodes;
+
+      for (const pr of prs) {
+        ghCore.startGroup(`PR-${pr.number}`);
+
+        // Convert GraphQL PR to REST-like format for update() method
+        const pullForUpdate = this.convertGraphQLPRToREST(pr, owner);
+        const isUpdated = await this.update(owner, pullForUpdate);
+
+        ghCore.endGroup();
+
+        if (isUpdated) {
+          updated++;
+        }
+      }
+
+      hasNextPage = result.repository.pullRequests.pageInfo.hasNextPage;
+      cursor = result.repository.pullRequests.pageInfo.endCursor;
+    }
+
+    ghCore.info(
+      `Auto update complete, ${updated} pull request(s) that point to base branch '${baseBranch}' were updated.`,
+    );
+
+    return updated;
+  }
+
+  private convertGraphQLPRToREST(
+    pr: GraphQLPullRequestNode,
+    owner: string,
+  ): PullRequest {
+    return {
+      number: pr.number,
+      state: pr.state,
+      merged: pr.merged,
+      draft: pr.draft,
+      labels: pr.labels.nodes,
+      base: {
+        ref: pr.baseRef.name,
+        label: `${owner}:${pr.baseRef.name}`,
+        sha: pr.baseRef.target.oid,
+      },
+      head: {
+        ref: pr.headRef.name,
+        label: pr.headRepository
+          ? `${pr.headRepository.owner.login}:${pr.headRef.name}`
+          : pr.headRef.name,
+        sha: pr.headRef.target.oid,
+        repo: pr.headRepository,
+      },
+    } as PullRequest;
   }
 
   async update(sourceEventOwner: string, pull: PullRequest): Promise<boolean> {
