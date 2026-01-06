@@ -36,7 +36,6 @@ The following events are supported:
 
 - push
 - pull_request
-- pull_request_target
 - workflow_run
 - workflow_dispatch
 - schedule
