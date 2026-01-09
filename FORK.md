@@ -16,9 +16,6 @@ This is a kaiko-ai fork of [chinthakagodawita/autoupdate-action](https://github.
 
 ### v1.patch1
 
-- Added `pull_request_target` event support in `src/router.ts`
-- Added corresponding test in `test/router.test.ts`
-- Updated `README.md` to list `pull_request_target` as supported event
 - Fixed Dockerfile to explicitly target `linux/amd64` platform
 
 ## Versioning
@@ -26,7 +23,7 @@ This is a kaiko-ai fork of [chinthakagodawita/autoupdate-action](https://github.
 Tags follow the pattern: `v1.patch{n}`
 
 - `v1.patch2` - Standard Node.js action (recommended)
-- `v1.patch1` - Initial kaiko release with `pull_request_target` support
+- `v1.patch1` - Initial kaiko release with Dockerfile fixes
 
 ## Usage
 
@@ -36,6 +33,4 @@ uses: kaiko-ai/pr-autoupdate-action@v1.patch2
 
 ## Why This Fork Exists
 
-The upstream action does not support the `pull_request_target` event type, which is required for secure workflows that need to run with elevated permissions on PRs from forks or when auto-merge is enabled.
-
-See upstream issue: https://github.com/chinthakagodawita/autoupdate-action/issues/296
+This fork was created to convert the action to a standard Node.js GitHub Action that doesn't require a container, making it faster and easier to use.

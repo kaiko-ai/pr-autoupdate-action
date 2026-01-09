@@ -10302,7 +10302,7 @@ class Router {
      * @returns {Promise<void>}
      */
     async route(eventName) {
-        if (eventName === 'pull_request' || eventName === 'pull_request_target') {
+        if (eventName === 'pull_request') {
             await this.updater.handlePullRequest();
         }
         else if (eventName === 'push') {
@@ -10318,7 +10318,7 @@ class Router {
             await this.updater.handleSchedule();
         }
         else {
-            throw new Error(`Unknown event type '${eventName}', only 'push', 'pull_request', 'pull_request_target', 'workflow_run', 'workflow_dispatch', and 'schedule' are supported.`);
+            throw new Error(`Unknown event type '${eventName}', only 'push', 'pull_request', 'workflow_run', 'workflow_dispatch', and 'schedule' are supported.`);
         }
     }
 }
