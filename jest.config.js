@@ -13,7 +13,6 @@ module.exports = {
       "ts-jest",
       {
         tsconfig: "tsconfig.tests.json",
-        compiler: "ttypescript",
       }
     ]
   },
