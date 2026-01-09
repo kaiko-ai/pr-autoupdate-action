@@ -10,7 +10,7 @@ jobs:
         with:
           node-version: 20.x
       - name: Install dependencies
-        run: yarn install --dev
+        run: yarn install
       - name: Lint files
         run: yarn run lint
       - name: Run tests

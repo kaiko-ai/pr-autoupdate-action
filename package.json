@@ -13,6 +13,7 @@
     "build": "ncc build bin/cli.ts --out dist",
     "lint": "eslint . && prettier --list-different bin/*.ts src/*.ts test/*.ts",
     "lint:fix": "eslint --fix .",
+    "prepare": "ts-patch install -s",
     "test": "jest",
     "test:watch": "jest --watchAll"
   },
