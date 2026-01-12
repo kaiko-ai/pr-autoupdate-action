@@ -32890,7 +32890,7 @@ class AutoUpdater {
     convertGraphQLPRToREST(pr, owner) {
         return {
             number: pr.number,
-            state: pr.state,
+            state: pr.state.toLowerCase(),
             merged: pr.merged,
             draft: pr.isDraft,
             labels: pr.labels.nodes,
