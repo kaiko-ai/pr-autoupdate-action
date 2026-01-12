@@ -263,7 +263,7 @@ export class AutoUpdater {
                   state
                   merged
                   mergeable
-                  draft
+                  isDraft
                   labels(first: 10) {
                     nodes {
                       name
@@ -290,11 +290,6 @@ export class AutoUpdater {
                     owner {
                       login
                     }
-                  }
-                  comparison(headRef: $base) {
-                    aheadBy
-                    behindBy
-                    status
                   }
                 }
               }
@@ -342,7 +337,7 @@ export class AutoUpdater {
       number: pr.number,
       state: pr.state,
       merged: pr.merged,
-      draft: pr.draft,
+      draft: pr.isDraft,
       labels: pr.labels.nodes,
       base: {
         ref: pr.baseRef.name,

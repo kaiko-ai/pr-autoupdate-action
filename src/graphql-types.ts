@@ -3,7 +3,7 @@ export interface GraphQLPullRequestNode {
   state: string;
   merged: boolean;
   mergeable: string;
-  draft: boolean;
+  isDraft: boolean;
   labels: {
     nodes: Array<{
       name: string;
@@ -27,11 +27,6 @@ export interface GraphQLPullRequestNode {
       login: string;
     };
   } | null;
-  comparison: {
-    aheadBy: number;
-    behindBy: number;
-    status: string;
-  };
 }
 
 export interface GraphQLPullRequestsResponse {
@@ -50,7 +45,7 @@ export interface GraphQLPullRequest {
   number: number;
   state: string;
   merged: boolean;
-  draft: boolean;
+  isDraft: boolean;
   labels: Array<{ name: string }>;
   base: {
     ref: string;
