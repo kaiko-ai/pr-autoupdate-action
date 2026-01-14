@@ -9,6 +9,7 @@ import {
   WorkflowRunEvent,
   WorkflowDispatchEvent,
 } from '@octokit/webhooks-types/schema';
+import { graphql } from '@octokit/graphql';
 import { ConfigLoader } from './config-loader';
 import { Output } from './Output';
 import { isRequestError } from './helpers/isRequestError';
@@ -25,6 +26,33 @@ type MergeParameters =
 type PullRequest =
   | PullRequestResponse['data']
   | PullRequestEvent['pull_request'];
+
+// Minimal PR structure required for update operations
+// Used when converting GraphQL responses to a REST-compatible format
+type UpdateablePullRequest = {
+  number: number;
+  state: string;
+  merged: boolean;
+  draft: boolean;
+  labels: Array<{ name?: string }>;
+  base: {
+    ref: string;
+    label: string;
+    sha: string;
+  };
+  head: {
+    ref: string;
+    label: string;
+    sha: string;
+    repo: {
+      name: string;
+      owner: {
+        login: string;
+      };
+    } | null;
+  };
+  auto_merge?: any; // Optional field used by prNeedsUpdate for auto_merge filter
+};
 
 type SetOutputFn = typeof ghCore.setOutput;
 
@@ -230,8 +258,6 @@ export class AutoUpdater {
       return 0;
     }
 
-    // Dynamically import graphql to avoid ES module issues in tests
-    const { graphql } = await import('@octokit/graphql');
     const graphqlWithAuth = graphql.defaults({
       headers: {
         authorization: `token ${this.config.githubToken()}`,
@@ -243,64 +269,96 @@ export class AutoUpdater {
     let cursor: string | null = null;
 
     while (hasNextPage) {
-      const result: GraphQLPullRequestsResponse = await graphqlWithAuth({
-        query: `
-          query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
-            repository(owner: $owner, name: $repo) {
-              pullRequests(
-                baseRefName: $base
-                states: [OPEN]
-                first: 100
-                after: $cursor
-                orderBy: {field: UPDATED_AT, direction: DESC}
-              ) {
-                pageInfo {
-                  hasNextPage
-                  endCursor
-                }
-                nodes {
-                  number
-                  state
-                  merged
-                  mergeable
-                  isDraft
-                  labels(first: 10) {
-                    nodes {
+      let result: GraphQLPullRequestsResponse;
+
+      try {
+        result = await graphqlWithAuth({
+          query: `
+            query($owner: String!, $repo: String!, $base: String!, $cursor: String) {
+              repository(owner: $owner, name: $repo) {
+                pullRequests(
+                  baseRefName: $base
+                  states: [OPEN]
+                  first: 100
+                  after: $cursor
+                  orderBy: {field: UPDATED_AT, direction: DESC}
+                ) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                  nodes {
+                    number
+                    state
+                    merged
+                    mergeable
+                    isDraft
+                    labels(first: 10) {
+                      nodes {
+                        name
+                      }
+                    }
+                    baseRef {
                       name
-                    }
-                  }
-                  baseRef {
-                    name
-                    target {
-                      ... on Commit {
-                        oid
+                      target {
+                        ... on Commit {
+                          oid
+                        }
                       }
                     }
-                  }
-                  headRef {
-                    name
-                    target {
-                      ... on Commit {
-                        oid
+                    headRef {
+                      name
+                      target {
+                        ... on Commit {
+                          oid
+                        }
                       }
                     }
-                  }
-                  headRepository {
-                    name
-                    owner {
-                      login
+                    headRepository {
+                      name
+                      owner {
+                        login
+                      }
                     }
                   }
                 }
               }
             }
+          `,
+          owner,
+          repo: repoName,
+          base: baseBranch,
+          cursor,
+        });
+      } catch (e: unknown) {
+        if (e instanceof Error) {
+          // Handle specific GraphQL errors
+          if ('status' in e) {
+            const status = (e as any).status;
+            if (status === 401 || status === 403) {
+              ghCore.error(
+                `Authentication error when calling GraphQL API: ${e.message}`,
+              );
+              ghCore.error(
+                'Please check that your GitHub token has the required permissions.',
+              );
+            } else if (status === 429) {
+              ghCore.error(`Rate limit exceeded when calling GraphQL API`);
+              ghCore.error(
+                'Please wait before retrying or check your rate limit status.',
+              );
+            } else {
+              ghCore.error(`GraphQL API error (status ${status}): ${e.message}`);
+            }
+          } else {
+            ghCore.error(`Error calling GraphQL API: ${e.message}`);
           }
-        `,
-        owner,
-        repo: repoName,
-        base: baseBranch,
-        cursor,
-      });
+        } else {
+          ghCore.error(`Unknown error calling GraphQL API`);
+        }
+        // Return early with count of PRs updated so far
+        return updated;
+      }
 
       const prs = result.repository.pullRequests.nodes;
 
@@ -309,6 +367,12 @@ export class AutoUpdater {
 
         // Convert GraphQL PR to REST-like format for update() method
         const pullForUpdate = this.convertGraphQLPRToREST(pr, owner);
+
+        if (!pullForUpdate) {
+          ghCore.endGroup();
+          continue;
+        }
+
         const isUpdated = await this.update(owner, pullForUpdate);
 
         ghCore.endGroup();
@@ -332,7 +396,15 @@ export class AutoUpdater {
   private convertGraphQLPRToREST(
     pr: GraphQLPullRequestNode,
     owner: string,
-  ): PullRequest {
+  ): UpdateablePullRequest | null {
+    // Check if headRef is null (can happen if PR comes from a deleted fork)
+    if (!pr.headRef) {
+      ghCore.warning(
+        `PR #${pr.number} has null headRef (fork may have been deleted), skipping`,
+      );
+      return null;
+    }
+
     return {
       number: pr.number,
       state: pr.state.toLowerCase(),
@@ -352,10 +424,13 @@ export class AutoUpdater {
         sha: pr.headRef.target.oid,
         repo: pr.headRepository,
       },
-    } as PullRequest;
+    };
   }
 
-  async update(sourceEventOwner: string, pull: PullRequest): Promise<boolean> {
+  async update(
+    sourceEventOwner: string,
+    pull: PullRequest | UpdateablePullRequest,
+  ): Promise<boolean> {
     const { ref } = pull.head;
     ghCore.info(`Evaluating pull request #${pull.number}...`);
 
@@ -410,7 +485,9 @@ export class AutoUpdater {
     }
   }
 
-  async prNeedsUpdate(pull: PullRequest): Promise<boolean> {
+  async prNeedsUpdate(
+    pull: PullRequest | UpdateablePullRequest,
+  ): Promise<boolean> {
     if (pull.merged === true) {
       ghCore.warning('Skipping pull request, already merged.');
       return false;

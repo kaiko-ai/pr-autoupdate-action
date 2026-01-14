@@ -20,7 +20,7 @@ export interface GraphQLPullRequestNode {
     target: {
       oid: string;
     };
-  };
+  } | null;
   headRepository: {
     name: string;
     owner: {
@@ -39,29 +39,4 @@ export interface GraphQLPullRequestsResponse {
       nodes: GraphQLPullRequestNode[];
     };
   };
-}
-
-export interface GraphQLPullRequest {
-  number: number;
-  state: string;
-  merged: boolean;
-  isDraft: boolean;
-  labels: Array<{ name: string }>;
-  base: {
-    ref: string;
-    label: string;
-    sha: string;
-  };
-  head: {
-    ref: string;
-    label: string;
-    sha: string;
-    repo: {
-      name: string;
-      owner: {
-        login: string;
-      };
-    } | null;
-  };
-  behindBy: number;
 }

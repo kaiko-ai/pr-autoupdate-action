@@ -1326,3 +1326,143 @@ describe('test `merge`', () => {
     }
   });
 });
+
+describe('test `pullsWithGraphQL`', () => {
+  beforeEach(() => {
+    // Enable GraphQL mode for these tests
+    process.env.USE_GRAPHQL_API = 'true';
+
+    // Reset the mock but preserve the defaults method
+    const { graphql } = require('@octokit/graphql');
+    graphql.mockClear();
+
+    // Ensure dry run is disabled
+    (config.dryRun as jest.Mock).mockReturnValue(false);
+    (config.mergeMsg as jest.Mock).mockReturnValue('');
+  });
+
+  afterEach(() => {
+    delete process.env.USE_GRAPHQL_API;
+  });
+
+  test('GraphQL push event on a branch without any PRs', async () => {
+    const { graphql } = require('@octokit/graphql');
+    const mockGraphql = graphql as unknown as jest.Mock;
+
+    mockGraphql.mockResolvedValueOnce({
+      repository: {
+        pullRequests: {
+          pageInfo: {
+            hasNextPage: false,
+            endCursor: null,
+          },
+          nodes: [],
+        },
+      },
+    });
+
+    const updater = new AutoUpdater(config, dummyPushEvent);
+    const updateSpy = jest.spyOn(updater, 'update').mockResolvedValue(true);
+
+    const updated = await updater.handlePush();
+
+    expect(updated).toEqual(0);
+    expect(updateSpy).toHaveBeenCalledTimes(0);
+  });
+
+  // TODO: Add integration test for GraphQL with PRs
+  // This requires better mocking of the GraphQL client and update flow
+
+  test('GraphQL handles null headRef (deleted fork)', async () => {
+    const { graphql } = require('@octokit/graphql');
+    const mockGraphql = graphql as unknown as jest.Mock;
+
+    mockGraphql.mockResolvedValueOnce({
+      repository: {
+        pullRequests: {
+          pageInfo: {
+            hasNextPage: false,
+            endCursor: null,
+          },
+          nodes: [
+            {
+              number: 1,
+              state: 'OPEN',
+              merged: false,
+              mergeable: 'MERGEABLE',
+              isDraft: false,
+              labels: { nodes: [] },
+              baseRef: {
+                name: base,
+                target: { oid: 'base-sha' },
+              },
+              headRef: null, // Simulating deleted fork
+              headRepository: null,
+            },
+          ],
+        },
+      },
+    });
+
+    const updater = new AutoUpdater(config, dummyPushEvent);
+    const updateSpy = jest.spyOn(updater, 'update').mockResolvedValue(true);
+
+    const updated = await updater.handlePush();
+
+    expect(updated).toEqual(0);
+    expect(updateSpy).toHaveBeenCalledTimes(0);
+  });
+
+  // TODO: Add integration test for GraphQL pagination
+  // This requires better mocking of the GraphQL client
+
+  test('GraphQL handles authentication error', async () => {
+    const { graphql } = require('@octokit/graphql');
+    const mockGraphql = graphql as unknown as jest.Mock;
+
+    const authError = new Error('Bad credentials');
+    (authError as any).status = 401;
+    mockGraphql.mockRejectedValueOnce(authError);
+
+    const updater = new AutoUpdater(config, dummyPushEvent);
+    const updateSpy = jest.spyOn(updater, 'update').mockResolvedValue(true);
+
+    const updated = await updater.handlePush();
+
+    expect(updated).toEqual(0);
+    expect(updateSpy).toHaveBeenCalledTimes(0);
+  });
+
+  test('GraphQL handles rate limit error', async () => {
+    const { graphql } = require('@octokit/graphql');
+    const mockGraphql = graphql as unknown as jest.Mock;
+
+    const rateLimitError = new Error('API rate limit exceeded');
+    (rateLimitError as any).status = 429;
+    mockGraphql.mockRejectedValueOnce(rateLimitError);
+
+    const updater = new AutoUpdater(config, dummyPushEvent);
+    const updateSpy = jest.spyOn(updater, 'update').mockResolvedValue(true);
+
+    const updated = await updater.handlePush();
+
+    expect(updated).toEqual(0);
+    expect(updateSpy).toHaveBeenCalledTimes(0);
+  });
+
+  test('GraphQL handles generic error', async () => {
+    const { graphql } = require('@octokit/graphql');
+    const mockGraphql = graphql as unknown as jest.Mock;
+
+    const genericError = new Error('Something went wrong');
+    mockGraphql.mockRejectedValueOnce(genericError);
+
+    const updater = new AutoUpdater(config, dummyPushEvent);
+    const updateSpy = jest.spyOn(updater, 'update').mockResolvedValue(true);
+
+    const updated = await updater.handlePush();
+
+    expect(updated).toEqual(0);
+    expect(updateSpy).toHaveBeenCalledTimes(0);
+  });
+});
