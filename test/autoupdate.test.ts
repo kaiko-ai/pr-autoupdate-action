@@ -17,6 +17,7 @@ import {
   WorkflowDispatchEvent,
   WorkflowRunEvent,
 } from '@octokit/webhooks-types/schema';
+import { graphql } from '@octokit/graphql';
 
 type PullRequestResponse =
   Endpoints['GET /repos/{owner}/{repo}/pulls/{pull_number}']['response'];
@@ -1333,8 +1334,7 @@ describe('test `pullsWithGraphQL`', () => {
     process.env.USE_GRAPHQL_API = 'true';
 
     // Reset the mock but preserve the defaults method
-    const { graphql } = require('@octokit/graphql');
-    graphql.mockClear();
+    (graphql as unknown as jest.Mock).mockClear();
 
     // Ensure dry run is disabled
     (config.dryRun as jest.Mock).mockReturnValue(false);
@@ -1346,7 +1346,6 @@ describe('test `pullsWithGraphQL`', () => {
   });
 
   test('GraphQL push event on a branch without any PRs', async () => {
-    const { graphql } = require('@octokit/graphql');
     const mockGraphql = graphql as unknown as jest.Mock;
 
     mockGraphql.mockResolvedValueOnce({
@@ -1374,7 +1373,6 @@ describe('test `pullsWithGraphQL`', () => {
   // This requires better mocking of the GraphQL client and update flow
 
   test('GraphQL handles null headRef (deleted fork)', async () => {
-    const { graphql } = require('@octokit/graphql');
     const mockGraphql = graphql as unknown as jest.Mock;
 
     mockGraphql.mockResolvedValueOnce({
@@ -1417,7 +1415,6 @@ describe('test `pullsWithGraphQL`', () => {
   // This requires better mocking of the GraphQL client
 
   test('GraphQL handles authentication error', async () => {
-    const { graphql } = require('@octokit/graphql');
     const mockGraphql = graphql as unknown as jest.Mock;
 
     const authError = new Error('Bad credentials');
@@ -1434,7 +1431,6 @@ describe('test `pullsWithGraphQL`', () => {
   });
 
   test('GraphQL handles rate limit error', async () => {
-    const { graphql } = require('@octokit/graphql');
     const mockGraphql = graphql as unknown as jest.Mock;
 
     const rateLimitError = new Error('API rate limit exceeded');
@@ -1451,7 +1447,6 @@ describe('test `pullsWithGraphQL`', () => {
   });
 
   test('GraphQL handles generic error', async () => {
-    const { graphql } = require('@octokit/graphql');
     const mockGraphql = graphql as unknown as jest.Mock;
 
     const genericError = new Error('Something went wrong');

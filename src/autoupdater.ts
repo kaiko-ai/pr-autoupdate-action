@@ -348,7 +348,9 @@ export class AutoUpdater {
                 'Please wait before retrying or check your rate limit status.',
               );
             } else {
-              ghCore.error(`GraphQL API error (status ${status}): ${e.message}`);
+              ghCore.error(
+                `GraphQL API error (status ${status}): ${e.message}`,
+              );
             }
           } else {
             ghCore.error(`Error calling GraphQL API: ${e.message}`);
