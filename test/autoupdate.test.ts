@@ -1396,6 +1396,7 @@ describe('test `pullsWithGraphQL`', () => {
               },
               headRef: null, // Simulating deleted fork
               headRepository: null,
+              autoMergeRequest: null,
             },
           ],
         },
@@ -1413,6 +1414,51 @@ describe('test `pullsWithGraphQL`', () => {
 
   // TODO: Add integration test for GraphQL pagination
   // This requires better mocking of the GraphQL client
+
+  test('GraphQL correctly maps autoMergeRequest field', () => {
+    const updater = new AutoUpdater(config, dummyPushEvent);
+
+    // Test PR with automerge enabled
+    const prWithAutoMerge = {
+      number: 1,
+      state: 'OPEN',
+      merged: false,
+      mergeable: 'MERGEABLE',
+      isDraft: false,
+      labels: { nodes: [] },
+      baseRef: { name: base, target: { oid: 'base-sha' } },
+      headRef: { name: head, target: { oid: 'head-sha' } },
+      headRepository: { name: repo, owner: { login: owner } },
+      autoMergeRequest: { enabled: true, mergeMethod: 'SQUASH' },
+    };
+
+    const convertedWithAutoMerge = (updater as any).convertGraphQLPRToREST(
+      prWithAutoMerge,
+      owner,
+    );
+    expect(convertedWithAutoMerge.auto_merge).not.toBeNull();
+    expect(convertedWithAutoMerge.auto_merge.merge_method).toBe('SQUASH');
+
+    // Test PR without automerge
+    const prWithoutAutoMerge = {
+      number: 2,
+      state: 'OPEN',
+      merged: false,
+      mergeable: 'MERGEABLE',
+      isDraft: false,
+      labels: { nodes: [] },
+      baseRef: { name: base, target: { oid: 'base-sha' } },
+      headRef: { name: head, target: { oid: 'head-sha' } },
+      headRepository: { name: repo, owner: { login: owner } },
+      autoMergeRequest: null,
+    };
+
+    const convertedWithoutAutoMerge = (updater as any).convertGraphQLPRToREST(
+      prWithoutAutoMerge,
+      owner,
+    );
+    expect(convertedWithoutAutoMerge.auto_merge).toBeNull();
+  });
 
   test('GraphQL handles authentication error', async () => {
     const mockGraphql = graphql as unknown as jest.Mock;

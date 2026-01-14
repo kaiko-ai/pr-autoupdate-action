@@ -27,6 +27,10 @@ export interface GraphQLPullRequestNode {
       login: string;
     };
   } | null;
+  autoMergeRequest: {
+    enabled: boolean;
+    mergeMethod: string;
+  } | null;
 }
 
 export interface GraphQLPullRequestsResponse {

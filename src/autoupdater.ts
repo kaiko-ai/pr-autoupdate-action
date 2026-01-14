@@ -320,6 +320,10 @@ export class AutoUpdater {
                         login
                       }
                     }
+                    autoMergeRequest {
+                      enabled
+                      mergeMethod
+                    }
                   }
                 }
               }
@@ -426,6 +430,14 @@ export class AutoUpdater {
         sha: pr.headRef.target.oid,
         repo: pr.headRepository,
       },
+      auto_merge: pr.autoMergeRequest
+        ? {
+            enabled_by: null,
+            merge_method: pr.autoMergeRequest.mergeMethod,
+            commit_title: null,
+            commit_message: null,
+          }
+        : null,
     };
   }
 
