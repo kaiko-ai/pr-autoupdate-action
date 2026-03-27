@@ -172,11 +172,23 @@ export class AutoUpdater {
       let pull: PullRequestResponse['data'];
       for (pull of pullsPage.data) {
         ghCore.startGroup(`PR-${pull.number}`);
-        const isUpdated = await this.update(owner, pull);
-        ghCore.endGroup();
 
-        if (isUpdated) {
-          updated++;
+        try {
+          const isUpdated = await this.update(owner, pull);
+          ghCore.endGroup();
+
+          if (isUpdated) {
+            updated++;
+          }
+        } catch (e: unknown) {
+          // Don't call endGroup() — leaving the group open forces GitHub
+          // Actions to render it expanded so the error is visible.
+          if (e instanceof Error) {
+            ghCore.error(
+              `Failed to update PR #${pull.number}: ${e.message}`,
+            );
+            ghCore.setFailed(e);
+          }
         }
       }
     }
@@ -230,17 +242,7 @@ export class AutoUpdater {
       mergeOpts.commit_message = mergeMsg;
     }
 
-    try {
-      return await this.merge(sourceEventOwner, pull.number, mergeOpts);
-    } catch (e: unknown) {
-      if (e instanceof Error) {
-        ghCore.error(
-          `Caught error running merge, skipping and continuing with remaining PRs`,
-        );
-        ghCore.setFailed(e);
-      }
-      return false;
-    }
+    return await this.merge(sourceEventOwner, pull.number, mergeOpts);
   }
 
   async prNeedsUpdate(pull: PullRequest): Promise<boolean> {
