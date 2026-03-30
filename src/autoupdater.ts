@@ -23,6 +23,10 @@ type PullRequest =
   | PullRequestEvent['pull_request'];
 
 type SetOutputFn = typeof ghCore.setOutput;
+type PullUpdateFailure = {
+  number: number;
+  message: string;
+};
 
 export class AutoUpdater {
   // See https://docs.github.com/en/developers/webhooks-and-events/webhook-events-and-payloads
@@ -133,6 +137,28 @@ export class AutoUpdater {
     );
   }
 
+  async writePullFailureSummary(failures: PullUpdateFailure[]): Promise<void> {
+    if (failures.length === 0) {
+      return;
+    }
+
+    const summary = ghCore.summary.emptyBuffer();
+    summary
+      .addHeading('Failed PR updates', 2)
+      .addList(
+        failures.map((failure) => `PR #${failure.number}: ${failure.message}`),
+      );
+
+    try {
+      await summary.write();
+    } catch (e: unknown) {
+      summary.emptyBuffer();
+
+      const message = e instanceof Error ? e.message : String(e);
+      ghCore.warning(`Unable to write failed PR update summary: ${message}`);
+    }
+  }
+
   async pulls(
     ref: string,
     repoName: string,
@@ -158,6 +184,7 @@ export class AutoUpdater {
     }
 
     let updated = 0;
+    const failures: PullUpdateFailure[] = [];
     const paginatorOpts = this.octokit.rest.pulls.list.endpoint.merge({
       owner: owner,
       repo: repoName,
@@ -172,13 +199,36 @@ export class AutoUpdater {
       let pull: PullRequestResponse['data'];
       for (pull of pullsPage.data) {
         ghCore.startGroup(`PR-${pull.number}`);
-        const isUpdated = await this.update(owner, pull);
-        ghCore.endGroup();
+        let failureMessage: string | null = null;
 
-        if (isUpdated) {
-          updated++;
+        try {
+          const isUpdated = await this.update(owner, pull);
+
+          if (isUpdated) {
+            updated++;
+          }
+        } catch (e: unknown) {
+          failureMessage = e instanceof Error ? e.message : String(e);
+          failures.push({
+            number: pull.number,
+            message: failureMessage,
+          });
+        } finally {
+          ghCore.endGroup();
+        }
+
+        if (failureMessage !== null) {
+          ghCore.error(
+            `Failed to update PR #${pull.number}: ${failureMessage}`,
+          );
         }
       }
+    }
+
+    await this.writePullFailureSummary(failures);
+
+    if (failures.length > 0) {
+      ghCore.setFailed(`${failures.length} pull request(s) failed to update.`);
     }
 
     ghCore.info(
@@ -230,17 +280,7 @@ export class AutoUpdater {
       mergeOpts.commit_message = mergeMsg;
     }
 
-    try {
-      return await this.merge(sourceEventOwner, pull.number, mergeOpts);
-    } catch (e: unknown) {
-      if (e instanceof Error) {
-        ghCore.error(
-          `Caught error running merge, skipping and continuing with remaining PRs`,
-        );
-        ghCore.setFailed(e);
-      }
-      return false;
-    }
+    return await this.merge(sourceEventOwner, pull.number, mergeOpts);
   }
 
   async prNeedsUpdate(pull: PullRequest): Promise<boolean> {

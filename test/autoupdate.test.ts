@@ -4,6 +4,10 @@ if ('GITHUB_TOKEN' in process.env) {
   delete process.env.GITHUB_TOKEN;
 }
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as ghCore from '@actions/core';
 import { createMock } from 'ts-auto-mock';
 import nock from 'nock';
 import config from '../src/config-loader';
@@ -24,7 +28,11 @@ type PullRequestResponse =
 jest.mock('../src/config-loader');
 
 beforeEach(() => {
+  jest.restoreAllMocks();
   jest.resetAllMocks();
+  delete process.env.GITHUB_STEP_SUMMARY;
+  ghCore.summary.emptyBuffer();
+  (<any>ghCore.summary)._filePath = undefined;
   jest.spyOn(config, 'githubToken').mockImplementation(() => 'test-token');
 });
 
@@ -1049,6 +1057,54 @@ describe('test `update`', () => {
   });
 });
 
+describe('test `writePullFailureSummary`', () => {
+  test('skip if there are no failures', async () => {
+    const updater = new AutoUpdater(config, emptyEvent);
+
+    await expect(updater.writePullFailureSummary([])).resolves.toBeUndefined();
+  });
+
+  test('warn if job summaries are unavailable', async () => {
+    const updater = new AutoUpdater(config, emptyEvent);
+    const warningSpy = jest
+      .spyOn(ghCore, 'warning')
+      .mockImplementation(() => undefined);
+
+    await updater.writePullFailureSummary([
+      {
+        number: 1,
+        message: 'summary unavailable',
+      },
+    ]);
+
+    expect(warningSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Unable to write failed PR update summary'),
+    );
+  });
+
+  test('warn if writing a summary throws a non-error value', async () => {
+    const updater = new AutoUpdater(config, emptyEvent);
+    const warningSpy = jest
+      .spyOn(ghCore, 'warning')
+      .mockImplementation(() => undefined);
+    const writeSpy = jest
+      .spyOn(ghCore.summary, 'write')
+      .mockRejectedValue('summary unavailable');
+
+    await updater.writePullFailureSummary([
+      {
+        number: 1,
+        message: 'summary unavailable',
+      },
+    ]);
+
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledWith(
+      'Unable to write failed PR update summary: summary unavailable',
+    );
+  });
+});
+
 describe('test `merge`', () => {
   const mergeOpts = {
     owner: validPull.head.repo.owner.login,
@@ -1256,6 +1312,12 @@ describe('test `merge`', () => {
   test('continue if merging throws an error', async () => {
     (config.mergeMsg as jest.Mock).mockReturnValue(null);
     const updater = new AutoUpdater(config, dummyPushEvent);
+    const summaryPath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'autoupdate-summary-')),
+      'summary.md',
+    );
+    fs.writeFileSync(summaryPath, '');
+    process.env.GITHUB_STEP_SUMMARY = summaryPath;
 
     const pullsMock = [];
     const expectedPulls = 5;
@@ -1283,6 +1345,18 @@ describe('test `merge`', () => {
     const needsUpdateSpy = jest
       .spyOn(updater, 'prNeedsUpdate')
       .mockResolvedValue(true);
+    const startGroupSpy = jest
+      .spyOn(ghCore, 'startGroup')
+      .mockImplementation(() => undefined);
+    const endGroupSpy = jest
+      .spyOn(ghCore, 'endGroup')
+      .mockImplementation(() => undefined);
+    const errorSpy = jest
+      .spyOn(ghCore, 'error')
+      .mockImplementation(() => undefined);
+    const setFailedSpy = jest
+      .spyOn(ghCore, 'setFailed')
+      .mockImplementation(() => undefined);
 
     const pullsScope = nock('https://api.github.com:443')
       .get(
@@ -1320,9 +1394,72 @@ describe('test `merge`', () => {
     // Only 4 PRs should have been updated, not 5.
     expect(updated).toBe(expectedPulls - 1);
     expect(needsUpdateSpy).toHaveBeenCalledTimes(expectedPulls);
+    expect(startGroupSpy).toHaveBeenCalledTimes(expectedPulls);
+    expect(endGroupSpy).toHaveBeenCalledTimes(expectedPulls);
+    expect(setFailedSpy).toHaveBeenCalledTimes(1);
+    expect(setFailedSpy).toHaveBeenCalledWith(
+      '1 pull request(s) failed to update.',
+    );
     expect(pullsScope.isDone()).toBe(true);
     for (const scope of mergeScopes) {
       expect(scope.isDone()).toBe(true);
     }
+
+    const failedPullMessage =
+      'Failed to update PR #3: Resource not accessible by integration';
+    const failedPullMessageIndex = errorSpy.mock.calls.findIndex(
+      ([message]) => message === failedPullMessage,
+    );
+
+    expect(failedPullMessageIndex).toBeGreaterThanOrEqual(0);
+    expect(endGroupSpy.mock.invocationCallOrder[3]).toBeLessThan(
+      errorSpy.mock.invocationCallOrder[failedPullMessageIndex],
+    );
+
+    const summary = fs.readFileSync(summaryPath, 'utf8');
+    expect(summary).toContain('Failed PR updates');
+    expect(summary).toContain('PR #3: Resource not accessible by integration');
+  });
+
+  test('continue if updating throws a non-error value', async () => {
+    const updater = new AutoUpdater(config, dummyPushEvent);
+    const summaryPath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'autoupdate-summary-')),
+      'summary.md',
+    );
+    fs.writeFileSync(summaryPath, '');
+    process.env.GITHUB_STEP_SUMMARY = summaryPath;
+
+    const pullsMock = [
+      {
+        id: 1,
+        number: 1,
+      },
+    ];
+
+    const updateSpy = jest.spyOn(updater, 'update').mockRejectedValue('boom');
+    const errorSpy = jest
+      .spyOn(ghCore, 'error')
+      .mockImplementation(() => undefined);
+    const setFailedSpy = jest
+      .spyOn(ghCore, 'setFailed')
+      .mockImplementation(() => undefined);
+
+    const pullsScope = nock('https://api.github.com:443')
+      .get(
+        `/repos/${owner}/${repo}/pulls?base=${branch}&state=open&sort=updated&direction=desc`,
+      )
+      .reply(200, pullsMock);
+
+    const updated = await updater.handlePush();
+
+    expect(updated).toBe(0);
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith('Failed to update PR #1: boom');
+    expect(setFailedSpy).toHaveBeenCalledWith(
+      '1 pull request(s) failed to update.',
+    );
+    expect(fs.readFileSync(summaryPath, 'utf8')).toContain('PR #1: boom');
+    expect(pullsScope.isDone()).toBe(true);
   });
 });
