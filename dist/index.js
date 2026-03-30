@@ -9960,6 +9960,23 @@ class AutoUpdater {
         ghCore.info(`Handling workflow_dispatch event on ref '${ref}'`);
         return await this.pulls(ref, repository.name, repository.owner.login, repository.owner.name);
     }
+    async writePullFailureSummary(failures) {
+        if (failures.length === 0) {
+            return;
+        }
+        const summary = ghCore.summary.emptyBuffer();
+        summary
+            .addHeading('Failed PR updates', 2)
+            .addList(failures.map((failure) => `PR #${failure.number}: ${failure.message}`));
+        try {
+            await summary.write();
+        }
+        catch (e) {
+            summary.emptyBuffer();
+            const message = e instanceof Error ? e.message : String(e);
+            ghCore.warning(`Unable to write failed PR update summary: ${message}`);
+        }
+    }
     async pulls(ref, repoName, repoOwnerLogin, repoOwnerName) {
         if (!ref.startsWith('refs/heads/')) {
             ghCore.warning('Push event was not on a branch, skipping.');
@@ -9976,6 +9993,7 @@ class AutoUpdater {
             return 0;
         }
         let updated = 0;
+        const failures = [];
         const paginatorOpts = this.octokit.rest.pulls.list.endpoint.merge({
             owner: owner,
             repo: repoName,
@@ -9989,22 +10007,31 @@ class AutoUpdater {
             let pull;
             for (pull of pullsPage.data) {
                 ghCore.startGroup(`PR-${pull.number}`);
+                let failureMessage = null;
                 try {
                     const isUpdated = await this.update(owner, pull);
-                    ghCore.endGroup();
                     if (isUpdated) {
                         updated++;
                     }
                 }
                 catch (e) {
-                    // Don't call endGroup() — leaving the group open forces GitHub
-                    // Actions to render it expanded so the error is visible.
-                    if (e instanceof Error) {
-                        ghCore.error(`Failed to update PR #${pull.number}: ${e.message}`);
-                        ghCore.setFailed(e);
-                    }
+                    failureMessage = e instanceof Error ? e.message : String(e);
+                    failures.push({
+                        number: pull.number,
+                        message: failureMessage,
+                    });
+                }
+                finally {
+                    ghCore.endGroup();
+                }
+                if (failureMessage !== null) {
+                    ghCore.error(`Failed to update PR #${pull.number}: ${failureMessage}`);
                 }
             }
+        }
+        await this.writePullFailureSummary(failures);
+        if (failures.length > 0) {
+            ghCore.setFailed(`${failures.length} pull request(s) failed to update.`);
         }
         ghCore.info(`Auto update complete, ${updated} pull request(s) that point to base branch '${baseBranch}' were updated.`);
         return updated;
