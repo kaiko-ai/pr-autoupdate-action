@@ -261,6 +261,16 @@ export class AutoUpdater {
       return false;
     }
 
+    // Cheap filters first, so the requests below only run for pull requests we
+    // would actually update.
+    if (!(await this.prPassesFilters(pull))) {
+      return false;
+    }
+
+    if (!(await this.prIsApproved(pull))) {
+      return false;
+    }
+
     try {
       const { data: comparison } =
         await this.octokit.rest.repos.compareCommitsWithBasehead({
@@ -285,6 +295,77 @@ export class AutoUpdater {
       return false;
     }
 
+    ghCore.info('All checks pass and PR branch is behind base branch.');
+    return true;
+  }
+
+  /**
+   * Whether a pull request carries an approving review, when REQUIRE_APPROVAL
+   * asks us to check.
+   *
+   * Reviews are collapsed to the latest one per reviewer, so a stale APPROVED
+   * followed by CHANGES_REQUESTED does not count. COMMENTED reviews leave an
+   * earlier verdict standing, which is how GitHub treats them.
+   */
+  async prIsApproved(pull: PullRequest): Promise<boolean> {
+    if (!this.config.requireApproval()) {
+      return true;
+    }
+
+    if (!pull.head.repo) {
+      ghCore.warning(
+        'Skipping pull request, fork appears to have been deleted.',
+      );
+      return false;
+    }
+
+    ghCore.info('Checking if this PR has an approving review.');
+
+    // head.repo, matching how PR_FILTER=protected looks up the base branch.
+    // Reviews live on the base repository, so this holds because the action no
+    // longer handles pull requests opened from forks.
+    const verdicts = new Map<string, string>();
+    const paginatorOpts = this.octokit.rest.pulls.listReviews.endpoint.merge({
+      owner: pull.head.repo.owner.login,
+      repo: pull.head.repo.name,
+      pull_number: pull.number,
+    });
+
+    let reviewsPage: octokit.OctokitResponse<any>;
+    for await (reviewsPage of this.octokit.paginate.iterator(paginatorOpts)) {
+      for (const review of reviewsPage.data) {
+        if (!review.user || review.state === 'COMMENTED') {
+          continue;
+        }
+        verdicts.set(review.user.login, review.state);
+      }
+    }
+
+    for (const state of verdicts.values()) {
+      if (state === 'APPROVED') {
+        ghCore.info('Pull request has an approving review.');
+        return true;
+      }
+    }
+
+    ghCore.info(
+      'Pull request has no approving review, skipping update. It will be updated once someone approves it.',
+    );
+    return false;
+  }
+
+  /**
+   * Whether a pull request is one we are willing to update at all, ignoring
+   * whether its branch is currently behind.
+   *
+   * Every check here answers from data the pull request list already
+   * returned, except PR_FILTER=protected. Answering them before comparing
+   * commits is what keeps the comparison off pull requests we were always
+   * going to skip: with PR_FILTER=auto_merge on a repository holding a
+   * hundred and fifty open pull requests, that is one API call per candidate
+   * rather than one per open pull request.
+   */
+  async prPassesFilters(pull: PullRequest): Promise<boolean> {
     // First check if this PR has an excluded label on it and skip further
     // processing if so.
     const excludedLabels = this.config.excludedLabels();
@@ -354,9 +435,7 @@ export class AutoUpdater {
         }
 
         if (labels.includes(label.name)) {
-          ghCore.info(
-            `Pull request has label '${label.name}' and PR branch is behind base branch.`,
-          );
+          ghCore.info(`Pull request has label '${label.name}'.`);
           return true;
         }
       }
@@ -369,6 +448,16 @@ export class AutoUpdater {
 
     if (prFilter === 'protected') {
       ghCore.info('Checking if this PR is against a protected branch.');
+
+      // prNeedsUpdate rejects these before calling us, but this method is
+      // reachable on its own and the lookup below needs the repository.
+      if (!pull.head.repo) {
+        ghCore.warning(
+          'Skipping pull request, fork appears to have been deleted.',
+        );
+        return false;
+      }
+
       const { data: branch } = await this.octokit.rest.repos.getBranch({
         owner: pull.head.repo.owner.login,
         repo: pull.head.repo.name,
@@ -376,9 +465,7 @@ export class AutoUpdater {
       });
 
       if (branch.protected) {
-        ghCore.info(
-          'Pull request is against a protected branch and is behind base branch.',
-        );
+        ghCore.info('Pull request is against a protected branch.');
         return true;
       }
 
@@ -399,14 +486,11 @@ export class AutoUpdater {
         return false;
       }
 
-      ghCore.info(
-        'Pull request has auto_merge enabled and is behind base branch.',
-      );
+      ghCore.info('Pull request has auto_merge enabled.');
 
       return true;
     }
 
-    ghCore.info('All checks pass and PR branch is behind base branch.');
     return true;
   }
 

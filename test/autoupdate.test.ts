@@ -26,6 +26,16 @@ jest.mock('../src/config-loader');
 beforeEach(() => {
   jest.resetAllMocks();
   jest.spyOn(config, 'githubToken').mockImplementation(() => 'test-token');
+  // Mirrors ConfigLoader: an absent EXCLUDED_LABELS yields an empty list, never
+  // undefined. Tests that care about exclusions override this.
+  (config.excludedLabels as jest.Mock).mockReturnValue([]);
+});
+
+afterEach(() => {
+  // Interceptors a test set up but never used would otherwise stay registered
+  // and answer the next test's request. Harmless while every path consumed
+  // every mock; not harmless once a filter can short-circuit the comparison.
+  nock.cleanAll();
 });
 
 const emptyEvent = {} as WebhookEvent;
@@ -240,7 +250,7 @@ describe('test `prNeedsUpdate`', () => {
     const needsUpdate = await updater.prNeedsUpdate(pull);
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.excludedLabels).toHaveBeenCalled();
 
     // The excluded labels check happens before we check any filters so these
@@ -266,7 +276,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -289,7 +299,7 @@ describe('test `prNeedsUpdate`', () => {
     const needsUpdate = await updater.prNeedsUpdate(pull);
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -312,7 +322,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -335,7 +345,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -358,7 +368,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -439,7 +449,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(comparePr.isDone()).toEqual(true);
+    expect(comparePr.isDone()).toEqual(false);
     expect(getBranch.isDone()).toEqual(true);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -494,7 +504,7 @@ describe('test `prNeedsUpdate`', () => {
     const needsUpdate = await updater.prNeedsUpdate(pull);
 
     expect(needsUpdate).toEqual(false);
-    expect(comparePr.isDone()).toEqual(true);
+    expect(comparePr.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
   });
 
@@ -517,6 +527,120 @@ describe('test `prNeedsUpdate`', () => {
     expect(comparePr.isDone()).toEqual(true);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
+  });
+
+  describe('approval requirement', () => {
+    const nockCompareRequest = () =>
+      nock('https://api.github.com:443')
+        .get(`/repos/${owner}/${repo}/compare/${head}...${base}`)
+        .reply(200, {
+          behind_by: 1,
+        });
+
+    const nockReviews = (reviews: Array<{ login: string; state: string }>) =>
+      nock('https://api.github.com:443')
+        .get(`/repos/${owner}/${repo}/pulls/1/reviews`)
+        .reply(
+          200,
+          reviews.map((review, index) => ({
+            id: index + 1,
+            state: review.state,
+            user: { login: review.login },
+          })),
+        );
+
+    beforeEach(() => {
+      (config.pullRequestFilter as jest.Mock).mockReturnValue('all');
+      (config.excludedLabels as jest.Mock).mockReturnValue([]);
+    });
+
+    test('reviews are not consulted when the requirement is off', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(false);
+
+      const compareScope = nockCompareRequest();
+      const reviewsScope = nockReviews([]);
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
+      expect(reviewsScope.isDone()).toEqual(false);
+    });
+
+    test('an approving review lets the update through', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([
+        { login: 'someone', state: 'APPROVED' },
+      ]);
+      const compareScope = nockCompareRequest();
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(true);
+      expect(reviewsScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
+    });
+
+    test('no reviews at all means no update, and no comparison', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([]);
+      const compareScope = nockCompareRequest();
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(false);
+      expect(reviewsScope.isDone()).toEqual(true);
+      // The point of checking approval first: a pull request nobody has looked
+      // at costs no comparison.
+      expect(compareScope.isDone()).toEqual(false);
+    });
+
+    test('a later verdict from the same reviewer supersedes their approval', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([
+        { login: 'someone', state: 'APPROVED' },
+        { login: 'someone', state: 'CHANGES_REQUESTED' },
+      ]);
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(false);
+      expect(reviewsScope.isDone()).toEqual(true);
+    });
+
+    test('a comment after an approval leaves the approval standing', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([
+        { login: 'someone', state: 'APPROVED' },
+        { login: 'someone', state: 'COMMENTED' },
+      ]);
+      const compareScope = nockCompareRequest();
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(true);
+      expect(reviewsScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
+    });
   });
 
   describe('pull request ready state filtering', () => {
@@ -555,8 +679,9 @@ describe('test `prNeedsUpdate`', () => {
     test('pull request is filtered to drafts only', async () => {
       (config.pullRequestReadyState as jest.Mock).mockReturnValue('draft');
 
-      const readyScope = nockCompareRequest();
-      const draftScope = nockCompareRequest();
+      // One interceptor, because only the draft pull request reaches the
+      // comparison now: the ready one is rejected by the filter before it.
+      const compareScope = nockCompareRequest();
 
       const updater = new AutoUpdater(config, emptyEvent);
 
@@ -566,8 +691,7 @@ describe('test `prNeedsUpdate`', () => {
       expect(readyPullNeedsUpdate).toEqual(false);
       expect(draftPullNeedsUpdate).toEqual(true);
       expect(config.pullRequestReadyState).toHaveBeenCalled();
-      expect(readyScope.isDone()).toEqual(true);
-      expect(draftScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
     });
 
     test('pull request ready state is filtered to ready PRs only', async () => {
@@ -575,8 +699,9 @@ describe('test `prNeedsUpdate`', () => {
         'ready_for_review',
       );
 
-      const readyScope = nockCompareRequest();
-      const draftScope = nockCompareRequest();
+      // One interceptor, because only the ready pull request reaches the
+      // comparison now: the draft is rejected by the filter before it.
+      const compareScope = nockCompareRequest();
 
       const updater = new AutoUpdater(config, emptyEvent);
       const readyPullNeedsUpdate = await updater.prNeedsUpdate(readyPull);
@@ -585,8 +710,7 @@ describe('test `prNeedsUpdate`', () => {
       expect(readyPullNeedsUpdate).toEqual(true);
       expect(draftPullNeedsUpdate).toEqual(false);
       expect(config.pullRequestReadyState).toHaveBeenCalled();
-      expect(readyScope.isDone()).toEqual(true);
-      expect(draftScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
     });
   });
 });

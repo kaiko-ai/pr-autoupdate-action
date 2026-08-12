@@ -2068,7 +2068,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 var universalUserAgent = __nccwpck_require__(5030);
 var beforeAfterHook = __nccwpck_require__(3682);
 var request = __nccwpck_require__(6234);
-var graphql = __nccwpck_require__(6442);
+var graphql = __nccwpck_require__(8467);
 var authToken = __nccwpck_require__(334);
 
 function _objectWithoutPropertiesLoose(source, excluded) {
@@ -2236,132 +2236,6 @@ Octokit.VERSION = VERSION;
 Octokit.plugins = [];
 
 exports.Octokit = Octokit;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 6442:
-/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-
-var request = __nccwpck_require__(6234);
-var universalUserAgent = __nccwpck_require__(5030);
-
-const VERSION = "4.8.0";
-
-function _buildMessageForResponseErrors(data) {
-  return `Request failed due to following response errors:\n` + data.errors.map(e => ` - ${e.message}`).join("\n");
-}
-
-class GraphqlResponseError extends Error {
-  constructor(request, headers, response) {
-    super(_buildMessageForResponseErrors(response));
-    this.request = request;
-    this.headers = headers;
-    this.response = response;
-    this.name = "GraphqlResponseError"; // Expose the errors and response data in their shorthand properties.
-
-    this.errors = response.errors;
-    this.data = response.data; // Maintains proper stack trace (only available on V8)
-
-    /* istanbul ignore next */
-
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-  }
-
-}
-
-const NON_VARIABLE_OPTIONS = ["method", "baseUrl", "url", "headers", "request", "query", "mediaType"];
-const FORBIDDEN_VARIABLE_OPTIONS = ["query", "method", "url"];
-const GHES_V3_SUFFIX_REGEX = /\/api\/v3\/?$/;
-function graphql(request, query, options) {
-  if (options) {
-    if (typeof query === "string" && "query" in options) {
-      return Promise.reject(new Error(`[@octokit/graphql] "query" cannot be used as variable name`));
-    }
-
-    for (const key in options) {
-      if (!FORBIDDEN_VARIABLE_OPTIONS.includes(key)) continue;
-      return Promise.reject(new Error(`[@octokit/graphql] "${key}" cannot be used as variable name`));
-    }
-  }
-
-  const parsedOptions = typeof query === "string" ? Object.assign({
-    query
-  }, options) : query;
-  const requestOptions = Object.keys(parsedOptions).reduce((result, key) => {
-    if (NON_VARIABLE_OPTIONS.includes(key)) {
-      result[key] = parsedOptions[key];
-      return result;
-    }
-
-    if (!result.variables) {
-      result.variables = {};
-    }
-
-    result.variables[key] = parsedOptions[key];
-    return result;
-  }, {}); // workaround for GitHub Enterprise baseUrl set with /api/v3 suffix
-  // https://github.com/octokit/auth-app.js/issues/111#issuecomment-657610451
-
-  const baseUrl = parsedOptions.baseUrl || request.endpoint.DEFAULTS.baseUrl;
-
-  if (GHES_V3_SUFFIX_REGEX.test(baseUrl)) {
-    requestOptions.url = baseUrl.replace(GHES_V3_SUFFIX_REGEX, "/api/graphql");
-  }
-
-  return request(requestOptions).then(response => {
-    if (response.data.errors) {
-      const headers = {};
-
-      for (const key of Object.keys(response.headers)) {
-        headers[key] = response.headers[key];
-      }
-
-      throw new GraphqlResponseError(requestOptions, headers, response.data);
-    }
-
-    return response.data.data;
-  });
-}
-
-function withDefaults(request$1, newDefaults) {
-  const newRequest = request$1.defaults(newDefaults);
-
-  const newApi = (query, options) => {
-    return graphql(newRequest, query, options);
-  };
-
-  return Object.assign(newApi, {
-    defaults: withDefaults.bind(null, newRequest),
-    endpoint: request.request.endpoint
-  });
-}
-
-const graphql$1 = withDefaults(request.request, {
-  headers: {
-    "user-agent": `octokit-graphql.js/${VERSION} ${universalUserAgent.getUserAgent()}`
-  },
-  method: "POST",
-  url: "/graphql"
-});
-function withCustomRequest(customRequest) {
-  return withDefaults(customRequest, {
-    method: "POST",
-    url: "/graphql"
-  });
-}
-
-exports.GraphqlResponseError = GraphqlResponseError;
-exports.graphql = graphql$1;
-exports.withCustomRequest = withCustomRequest;
 //# sourceMappingURL=index.js.map
 
 
@@ -2760,6 +2634,132 @@ const DEFAULTS = {
 const endpoint = withDefaults(null, DEFAULTS);
 
 exports.endpoint = endpoint;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 8467:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+
+var request = __nccwpck_require__(6234);
+var universalUserAgent = __nccwpck_require__(5030);
+
+const VERSION = "4.8.0";
+
+function _buildMessageForResponseErrors(data) {
+  return `Request failed due to following response errors:\n` + data.errors.map(e => ` - ${e.message}`).join("\n");
+}
+
+class GraphqlResponseError extends Error {
+  constructor(request, headers, response) {
+    super(_buildMessageForResponseErrors(response));
+    this.request = request;
+    this.headers = headers;
+    this.response = response;
+    this.name = "GraphqlResponseError"; // Expose the errors and response data in their shorthand properties.
+
+    this.errors = response.errors;
+    this.data = response.data; // Maintains proper stack trace (only available on V8)
+
+    /* istanbul ignore next */
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+
+}
+
+const NON_VARIABLE_OPTIONS = ["method", "baseUrl", "url", "headers", "request", "query", "mediaType"];
+const FORBIDDEN_VARIABLE_OPTIONS = ["query", "method", "url"];
+const GHES_V3_SUFFIX_REGEX = /\/api\/v3\/?$/;
+function graphql(request, query, options) {
+  if (options) {
+    if (typeof query === "string" && "query" in options) {
+      return Promise.reject(new Error(`[@octokit/graphql] "query" cannot be used as variable name`));
+    }
+
+    for (const key in options) {
+      if (!FORBIDDEN_VARIABLE_OPTIONS.includes(key)) continue;
+      return Promise.reject(new Error(`[@octokit/graphql] "${key}" cannot be used as variable name`));
+    }
+  }
+
+  const parsedOptions = typeof query === "string" ? Object.assign({
+    query
+  }, options) : query;
+  const requestOptions = Object.keys(parsedOptions).reduce((result, key) => {
+    if (NON_VARIABLE_OPTIONS.includes(key)) {
+      result[key] = parsedOptions[key];
+      return result;
+    }
+
+    if (!result.variables) {
+      result.variables = {};
+    }
+
+    result.variables[key] = parsedOptions[key];
+    return result;
+  }, {}); // workaround for GitHub Enterprise baseUrl set with /api/v3 suffix
+  // https://github.com/octokit/auth-app.js/issues/111#issuecomment-657610451
+
+  const baseUrl = parsedOptions.baseUrl || request.endpoint.DEFAULTS.baseUrl;
+
+  if (GHES_V3_SUFFIX_REGEX.test(baseUrl)) {
+    requestOptions.url = baseUrl.replace(GHES_V3_SUFFIX_REGEX, "/api/graphql");
+  }
+
+  return request(requestOptions).then(response => {
+    if (response.data.errors) {
+      const headers = {};
+
+      for (const key of Object.keys(response.headers)) {
+        headers[key] = response.headers[key];
+      }
+
+      throw new GraphqlResponseError(requestOptions, headers, response.data);
+    }
+
+    return response.data.data;
+  });
+}
+
+function withDefaults(request$1, newDefaults) {
+  const newRequest = request$1.defaults(newDefaults);
+
+  const newApi = (query, options) => {
+    return graphql(newRequest, query, options);
+  };
+
+  return Object.assign(newApi, {
+    defaults: withDefaults.bind(null, newRequest),
+    endpoint: request.request.endpoint
+  });
+}
+
+const graphql$1 = withDefaults(request.request, {
+  headers: {
+    "user-agent": `octokit-graphql.js/${VERSION} ${universalUserAgent.getUserAgent()}`
+  },
+  method: "POST",
+  url: "/graphql"
+});
+function withCustomRequest(customRequest) {
+  return withDefaults(customRequest, {
+    method: "POST",
+    url: "/graphql"
+  });
+}
+
+exports.GraphqlResponseError = GraphqlResponseError;
+exports.graphql = graphql$1;
+exports.withCustomRequest = withCustomRequest;
 //# sourceMappingURL=index.js.map
 
 
@@ -9867,6 +9867,14 @@ class AutoUpdater {
             ghCore.warning(`Skipping pull request, fork appears to have been deleted.`);
             return false;
         }
+        // Cheap filters first, so the requests below only run for pull requests we
+        // would actually update.
+        if (!(await this.prPassesFilters(pull))) {
+            return false;
+        }
+        if (!(await this.prIsApproved(pull))) {
+            return false;
+        }
         try {
             const { data: comparison } = await this.octokit.rest.repos.compareCommitsWithBasehead({
                 owner: pull.head.repo.owner.login,
@@ -9887,6 +9895,65 @@ class AutoUpdater {
             }
             return false;
         }
+        ghCore.info('All checks pass and PR branch is behind base branch.');
+        return true;
+    }
+    /**
+     * Whether a pull request carries an approving review, when REQUIRE_APPROVAL
+     * asks us to check.
+     *
+     * Reviews are collapsed to the latest one per reviewer, so a stale APPROVED
+     * followed by CHANGES_REQUESTED does not count. COMMENTED reviews leave an
+     * earlier verdict standing, which is how GitHub treats them.
+     */
+    async prIsApproved(pull) {
+        if (!this.config.requireApproval()) {
+            return true;
+        }
+        if (!pull.head.repo) {
+            ghCore.warning('Skipping pull request, fork appears to have been deleted.');
+            return false;
+        }
+        ghCore.info('Checking if this PR has an approving review.');
+        // head.repo, matching how PR_FILTER=protected looks up the base branch.
+        // Reviews live on the base repository, so this holds because the action no
+        // longer handles pull requests opened from forks.
+        const verdicts = new Map();
+        const paginatorOpts = this.octokit.rest.pulls.listReviews.endpoint.merge({
+            owner: pull.head.repo.owner.login,
+            repo: pull.head.repo.name,
+            pull_number: pull.number,
+        });
+        let reviewsPage;
+        for await (reviewsPage of this.octokit.paginate.iterator(paginatorOpts)) {
+            for (const review of reviewsPage.data) {
+                if (!review.user || review.state === 'COMMENTED') {
+                    continue;
+                }
+                verdicts.set(review.user.login, review.state);
+            }
+        }
+        for (const state of verdicts.values()) {
+            if (state === 'APPROVED') {
+                ghCore.info('Pull request has an approving review.');
+                return true;
+            }
+        }
+        ghCore.info('Pull request has no approving review, skipping update. It will be updated once someone approves it.');
+        return false;
+    }
+    /**
+     * Whether a pull request is one we are willing to update at all, ignoring
+     * whether its branch is currently behind.
+     *
+     * Every check here answers from data the pull request list already
+     * returned, except PR_FILTER=protected. Answering them before comparing
+     * commits is what keeps the comparison off pull requests we were always
+     * going to skip: with PR_FILTER=auto_merge on a repository holding a
+     * hundred and fifty open pull requests, that is one API call per candidate
+     * rather than one per open pull request.
+     */
+    async prPassesFilters(pull) {
         // First check if this PR has an excluded label on it and skip further
         // processing if so.
         const excludedLabels = this.config.excludedLabels();
@@ -9935,7 +10002,7 @@ class AutoUpdater {
                     continue;
                 }
                 if (labels.includes(label.name)) {
-                    ghCore.info(`Pull request has label '${label.name}' and PR branch is behind base branch.`);
+                    ghCore.info(`Pull request has label '${label.name}'.`);
                     return true;
                 }
             }
@@ -9944,13 +10011,19 @@ class AutoUpdater {
         }
         if (prFilter === 'protected') {
             ghCore.info('Checking if this PR is against a protected branch.');
+            // prNeedsUpdate rejects these before calling us, but this method is
+            // reachable on its own and the lookup below needs the repository.
+            if (!pull.head.repo) {
+                ghCore.warning('Skipping pull request, fork appears to have been deleted.');
+                return false;
+            }
             const { data: branch } = await this.octokit.rest.repos.getBranch({
                 owner: pull.head.repo.owner.login,
                 repo: pull.head.repo.name,
                 branch: pull.base.ref,
             });
             if (branch.protected) {
-                ghCore.info('Pull request is against a protected branch and is behind base branch.');
+                ghCore.info('Pull request is against a protected branch.');
                 return true;
             }
             ghCore.info('Pull request is not against a protected branch, skipping update.');
@@ -9962,10 +10035,9 @@ class AutoUpdater {
                 ghCore.info('Pull request does not have auto_merge enabled, skipping update.');
                 return false;
             }
-            ghCore.info('Pull request has auto_merge enabled and is behind base branch.');
+            ghCore.info('Pull request has auto_merge enabled.');
             return true;
         }
-        ghCore.info('All checks pass and PR branch is behind base branch.');
         return true;
     }
     async merge(sourceEventOwner, prNumber, mergeOpts, 
@@ -10062,6 +10134,20 @@ class ConfigLoader {
     }
     dryRun() {
         const val = this.getValue('DRY_RUN', false, 'false');
+        return val === 'true';
+    }
+    /**
+     * Whether a pull request must carry an approving review before its branch is
+     * updated. Off by default, so existing configurations are unaffected.
+     *
+     * An approval is the signal that someone intends to merge. Waiting for it
+     * avoids updating - and so re-running CI on - pull requests that are still
+     * waiting to be looked at. Deliberately not "all checks are green": a check
+     * can be pending because the branch is stale, and gating the update on it
+     * would be circular. An approval never depends on how fresh the branch is.
+     */
+    requireApproval() {
+        const val = this.getValue('REQUIRE_APPROVAL', false, 'false');
         return val === 'true';
     }
     pullRequestFilter() {

@@ -69,6 +69,8 @@ All configuration values, except `GITHUB_TOKEN`, are optional.
   - `"ready_for_review"`: Only monitor PRs that are not currently in the draft state.
   - `"draft"`: Only monitor PRs that are currently in the draft state.
 
+- `REQUIRE_APPROVAL`: When `"true"`, only update a pull request once it carries an approving review (default: `"false"`). An approval is the signal that somebody intends to merge, so waiting for it keeps _autoupdate_ off pull requests that are still waiting to be read — and keeps their CI from re-running on every push to the base branch. Reviews are collapsed to the latest verdict per reviewer, so a `CHANGES_REQUESTED` after an `APPROVED` withdraws it, while a `COMMENTED` leaves it standing. Note this deliberately does not wait for checks to pass: a check can be pending precisely because the branch is stale, so gating the update on it would never resolve.
+
 - `EXCLUDED_LABELS`: Controls which labels _autoupdate_ will ignore when evaluating otherwise-included PRs. This option works with all `PR_FILTER` options and can be either a single label or a comma-separated list of labels.
 
 - `MERGE_MSG`: A custom message to use when creating the merge commit from the destination branch to your pull request's branch.
