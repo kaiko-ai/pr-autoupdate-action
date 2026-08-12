@@ -26,6 +26,16 @@ jest.mock('../src/config-loader');
 beforeEach(() => {
   jest.resetAllMocks();
   jest.spyOn(config, 'githubToken').mockImplementation(() => 'test-token');
+  // Mirrors ConfigLoader: an absent EXCLUDED_LABELS yields an empty list, never
+  // undefined. Tests that care about exclusions override this.
+  (config.excludedLabels as jest.Mock).mockReturnValue([]);
+});
+
+afterEach(() => {
+  // Interceptors a test set up but never used would otherwise stay registered
+  // and answer the next test's request. Harmless while every path consumed
+  // every mock; not harmless once a filter can short-circuit the comparison.
+  nock.cleanAll();
 });
 
 const emptyEvent = {} as WebhookEvent;
@@ -240,7 +250,7 @@ describe('test `prNeedsUpdate`', () => {
     const needsUpdate = await updater.prNeedsUpdate(pull);
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.excludedLabels).toHaveBeenCalled();
 
     // The excluded labels check happens before we check any filters so these
@@ -266,7 +276,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -289,7 +299,7 @@ describe('test `prNeedsUpdate`', () => {
     const needsUpdate = await updater.prNeedsUpdate(pull);
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -312,7 +322,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -335,7 +345,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -358,7 +368,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(scope.isDone()).toEqual(true);
+    expect(scope.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.pullRequestLabels).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -439,7 +449,7 @@ describe('test `prNeedsUpdate`', () => {
     );
 
     expect(needsUpdate).toEqual(false);
-    expect(comparePr.isDone()).toEqual(true);
+    expect(comparePr.isDone()).toEqual(false);
     expect(getBranch.isDone()).toEqual(true);
     expect(config.pullRequestFilter).toHaveBeenCalled();
     expect(config.excludedLabels).toHaveBeenCalled();
@@ -494,7 +504,7 @@ describe('test `prNeedsUpdate`', () => {
     const needsUpdate = await updater.prNeedsUpdate(pull);
 
     expect(needsUpdate).toEqual(false);
-    expect(comparePr.isDone()).toEqual(true);
+    expect(comparePr.isDone()).toEqual(false);
     expect(config.pullRequestFilter).toHaveBeenCalled();
   });
 
@@ -555,8 +565,9 @@ describe('test `prNeedsUpdate`', () => {
     test('pull request is filtered to drafts only', async () => {
       (config.pullRequestReadyState as jest.Mock).mockReturnValue('draft');
 
-      const readyScope = nockCompareRequest();
-      const draftScope = nockCompareRequest();
+      // One interceptor, because only the draft pull request reaches the
+      // comparison now: the ready one is rejected by the filter before it.
+      const compareScope = nockCompareRequest();
 
       const updater = new AutoUpdater(config, emptyEvent);
 
@@ -566,8 +577,7 @@ describe('test `prNeedsUpdate`', () => {
       expect(readyPullNeedsUpdate).toEqual(false);
       expect(draftPullNeedsUpdate).toEqual(true);
       expect(config.pullRequestReadyState).toHaveBeenCalled();
-      expect(readyScope.isDone()).toEqual(true);
-      expect(draftScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
     });
 
     test('pull request ready state is filtered to ready PRs only', async () => {
@@ -575,8 +585,9 @@ describe('test `prNeedsUpdate`', () => {
         'ready_for_review',
       );
 
-      const readyScope = nockCompareRequest();
-      const draftScope = nockCompareRequest();
+      // One interceptor, because only the ready pull request reaches the
+      // comparison now: the draft is rejected by the filter before it.
+      const compareScope = nockCompareRequest();
 
       const updater = new AutoUpdater(config, emptyEvent);
       const readyPullNeedsUpdate = await updater.prNeedsUpdate(readyPull);
@@ -585,8 +596,7 @@ describe('test `prNeedsUpdate`', () => {
       expect(readyPullNeedsUpdate).toEqual(true);
       expect(draftPullNeedsUpdate).toEqual(false);
       expect(config.pullRequestReadyState).toHaveBeenCalled();
-      expect(readyScope.isDone()).toEqual(true);
-      expect(draftScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
     });
   });
 });

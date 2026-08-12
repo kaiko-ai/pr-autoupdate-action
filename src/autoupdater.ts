@@ -261,6 +261,12 @@ export class AutoUpdater {
       return false;
     }
 
+    // Cheap filters first, so the comparison below only runs for pull
+    // requests we would actually update.
+    if (!(await this.prPassesFilters(pull))) {
+      return false;
+    }
+
     try {
       const { data: comparison } =
         await this.octokit.rest.repos.compareCommitsWithBasehead({
@@ -285,6 +291,22 @@ export class AutoUpdater {
       return false;
     }
 
+    ghCore.info('All checks pass and PR branch is behind base branch.');
+    return true;
+  }
+
+  /**
+   * Whether a pull request is one we are willing to update at all, ignoring
+   * whether its branch is currently behind.
+   *
+   * Every check here answers from data the pull request list already
+   * returned, except PR_FILTER=protected. Answering them before comparing
+   * commits is what keeps the comparison off pull requests we were always
+   * going to skip: with PR_FILTER=auto_merge on a repository holding a
+   * hundred and fifty open pull requests, that is one API call per candidate
+   * rather than one per open pull request.
+   */
+  async prPassesFilters(pull: PullRequest): Promise<boolean> {
     // First check if this PR has an excluded label on it and skip further
     // processing if so.
     const excludedLabels = this.config.excludedLabels();
@@ -354,9 +376,7 @@ export class AutoUpdater {
         }
 
         if (labels.includes(label.name)) {
-          ghCore.info(
-            `Pull request has label '${label.name}' and PR branch is behind base branch.`,
-          );
+          ghCore.info(`Pull request has label '${label.name}'.`);
           return true;
         }
       }
@@ -369,6 +389,16 @@ export class AutoUpdater {
 
     if (prFilter === 'protected') {
       ghCore.info('Checking if this PR is against a protected branch.');
+
+      // prNeedsUpdate rejects these before calling us, but this method is
+      // reachable on its own and the lookup below needs the repository.
+      if (!pull.head.repo) {
+        ghCore.warning(
+          'Skipping pull request, fork appears to have been deleted.',
+        );
+        return false;
+      }
+
       const { data: branch } = await this.octokit.rest.repos.getBranch({
         owner: pull.head.repo.owner.login,
         repo: pull.head.repo.name,
@@ -376,9 +406,7 @@ export class AutoUpdater {
       });
 
       if (branch.protected) {
-        ghCore.info(
-          'Pull request is against a protected branch and is behind base branch.',
-        );
+        ghCore.info('Pull request is against a protected branch.');
         return true;
       }
 
@@ -399,14 +427,11 @@ export class AutoUpdater {
         return false;
       }
 
-      ghCore.info(
-        'Pull request has auto_merge enabled and is behind base branch.',
-      );
+      ghCore.info('Pull request has auto_merge enabled.');
 
       return true;
     }
 
-    ghCore.info('All checks pass and PR branch is behind base branch.');
     return true;
   }
 
