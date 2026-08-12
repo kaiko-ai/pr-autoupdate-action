@@ -261,9 +261,13 @@ export class AutoUpdater {
       return false;
     }
 
-    // Cheap filters first, so the comparison below only runs for pull
-    // requests we would actually update.
+    // Cheap filters first, so the requests below only run for pull requests we
+    // would actually update.
     if (!(await this.prPassesFilters(pull))) {
+      return false;
+    }
+
+    if (!(await this.prIsApproved(pull))) {
       return false;
     }
 
@@ -293,6 +297,61 @@ export class AutoUpdater {
 
     ghCore.info('All checks pass and PR branch is behind base branch.');
     return true;
+  }
+
+  /**
+   * Whether a pull request carries an approving review, when REQUIRE_APPROVAL
+   * asks us to check.
+   *
+   * Reviews are collapsed to the latest one per reviewer, so a stale APPROVED
+   * followed by CHANGES_REQUESTED does not count. COMMENTED reviews leave an
+   * earlier verdict standing, which is how GitHub treats them.
+   */
+  async prIsApproved(pull: PullRequest): Promise<boolean> {
+    if (!this.config.requireApproval()) {
+      return true;
+    }
+
+    if (!pull.head.repo) {
+      ghCore.warning(
+        'Skipping pull request, fork appears to have been deleted.',
+      );
+      return false;
+    }
+
+    ghCore.info('Checking if this PR has an approving review.');
+
+    // head.repo, matching how PR_FILTER=protected looks up the base branch.
+    // Reviews live on the base repository, so this holds because the action no
+    // longer handles pull requests opened from forks.
+    const verdicts = new Map<string, string>();
+    const paginatorOpts = this.octokit.rest.pulls.listReviews.endpoint.merge({
+      owner: pull.head.repo.owner.login,
+      repo: pull.head.repo.name,
+      pull_number: pull.number,
+    });
+
+    let reviewsPage: octokit.OctokitResponse<any>;
+    for await (reviewsPage of this.octokit.paginate.iterator(paginatorOpts)) {
+      for (const review of reviewsPage.data) {
+        if (!review.user || review.state === 'COMMENTED') {
+          continue;
+        }
+        verdicts.set(review.user.login, review.state);
+      }
+    }
+
+    for (const state of verdicts.values()) {
+      if (state === 'APPROVED') {
+        ghCore.info('Pull request has an approving review.');
+        return true;
+      }
+    }
+
+    ghCore.info(
+      'Pull request has no approving review, skipping update. It will be updated once someone approves it.',
+    );
+    return false;
   }
 
   /**

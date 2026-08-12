@@ -9867,9 +9867,12 @@ class AutoUpdater {
             ghCore.warning(`Skipping pull request, fork appears to have been deleted.`);
             return false;
         }
-        // Cheap filters first, so the comparison below only runs for pull
-        // requests we would actually update.
+        // Cheap filters first, so the requests below only run for pull requests we
+        // would actually update.
         if (!(await this.prPassesFilters(pull))) {
+            return false;
+        }
+        if (!(await this.prIsApproved(pull))) {
             return false;
         }
         try {
@@ -9894,6 +9897,50 @@ class AutoUpdater {
         }
         ghCore.info('All checks pass and PR branch is behind base branch.');
         return true;
+    }
+    /**
+     * Whether a pull request carries an approving review, when REQUIRE_APPROVAL
+     * asks us to check.
+     *
+     * Reviews are collapsed to the latest one per reviewer, so a stale APPROVED
+     * followed by CHANGES_REQUESTED does not count. COMMENTED reviews leave an
+     * earlier verdict standing, which is how GitHub treats them.
+     */
+    async prIsApproved(pull) {
+        if (!this.config.requireApproval()) {
+            return true;
+        }
+        if (!pull.head.repo) {
+            ghCore.warning('Skipping pull request, fork appears to have been deleted.');
+            return false;
+        }
+        ghCore.info('Checking if this PR has an approving review.');
+        // head.repo, matching how PR_FILTER=protected looks up the base branch.
+        // Reviews live on the base repository, so this holds because the action no
+        // longer handles pull requests opened from forks.
+        const verdicts = new Map();
+        const paginatorOpts = this.octokit.rest.pulls.listReviews.endpoint.merge({
+            owner: pull.head.repo.owner.login,
+            repo: pull.head.repo.name,
+            pull_number: pull.number,
+        });
+        let reviewsPage;
+        for await (reviewsPage of this.octokit.paginate.iterator(paginatorOpts)) {
+            for (const review of reviewsPage.data) {
+                if (!review.user || review.state === 'COMMENTED') {
+                    continue;
+                }
+                verdicts.set(review.user.login, review.state);
+            }
+        }
+        for (const state of verdicts.values()) {
+            if (state === 'APPROVED') {
+                ghCore.info('Pull request has an approving review.');
+                return true;
+            }
+        }
+        ghCore.info('Pull request has no approving review, skipping update. It will be updated once someone approves it.');
+        return false;
     }
     /**
      * Whether a pull request is one we are willing to update at all, ignoring
@@ -10087,6 +10134,20 @@ class ConfigLoader {
     }
     dryRun() {
         const val = this.getValue('DRY_RUN', false, 'false');
+        return val === 'true';
+    }
+    /**
+     * Whether a pull request must carry an approving review before its branch is
+     * updated. Off by default, so existing configurations are unaffected.
+     *
+     * An approval is the signal that someone intends to merge. Waiting for it
+     * avoids updating - and so re-running CI on - pull requests that are still
+     * waiting to be looked at. Deliberately not "all checks are green": a check
+     * can be pending because the branch is stale, and gating the update on it
+     * would be circular. An approval never depends on how fresh the branch is.
+     */
+    requireApproval() {
+        const val = this.getValue('REQUIRE_APPROVAL', false, 'false');
         return val === 'true';
     }
     pullRequestFilter() {

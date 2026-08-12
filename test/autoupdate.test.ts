@@ -529,6 +529,120 @@ describe('test `prNeedsUpdate`', () => {
     expect(config.excludedLabels).toHaveBeenCalled();
   });
 
+  describe('approval requirement', () => {
+    const nockCompareRequest = () =>
+      nock('https://api.github.com:443')
+        .get(`/repos/${owner}/${repo}/compare/${head}...${base}`)
+        .reply(200, {
+          behind_by: 1,
+        });
+
+    const nockReviews = (reviews: Array<{ login: string; state: string }>) =>
+      nock('https://api.github.com:443')
+        .get(`/repos/${owner}/${repo}/pulls/1/reviews`)
+        .reply(
+          200,
+          reviews.map((review, index) => ({
+            id: index + 1,
+            state: review.state,
+            user: { login: review.login },
+          })),
+        );
+
+    beforeEach(() => {
+      (config.pullRequestFilter as jest.Mock).mockReturnValue('all');
+      (config.excludedLabels as jest.Mock).mockReturnValue([]);
+    });
+
+    test('reviews are not consulted when the requirement is off', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(false);
+
+      const compareScope = nockCompareRequest();
+      const reviewsScope = nockReviews([]);
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
+      expect(reviewsScope.isDone()).toEqual(false);
+    });
+
+    test('an approving review lets the update through', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([
+        { login: 'someone', state: 'APPROVED' },
+      ]);
+      const compareScope = nockCompareRequest();
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(true);
+      expect(reviewsScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
+    });
+
+    test('no reviews at all means no update, and no comparison', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([]);
+      const compareScope = nockCompareRequest();
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(false);
+      expect(reviewsScope.isDone()).toEqual(true);
+      // The point of checking approval first: a pull request nobody has looked
+      // at costs no comparison.
+      expect(compareScope.isDone()).toEqual(false);
+    });
+
+    test('a later verdict from the same reviewer supersedes their approval', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([
+        { login: 'someone', state: 'APPROVED' },
+        { login: 'someone', state: 'CHANGES_REQUESTED' },
+      ]);
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(false);
+      expect(reviewsScope.isDone()).toEqual(true);
+    });
+
+    test('a comment after an approval leaves the approval standing', async () => {
+      (config.requireApproval as jest.Mock).mockReturnValue(true);
+
+      const reviewsScope = nockReviews([
+        { login: 'someone', state: 'APPROVED' },
+        { login: 'someone', state: 'COMMENTED' },
+      ]);
+      const compareScope = nockCompareRequest();
+
+      const updater = new AutoUpdater(config, emptyEvent);
+      const needsUpdate = await updater.prNeedsUpdate(
+        validPull as unknown as PullRequestResponse['data'],
+      );
+
+      expect(needsUpdate).toEqual(true);
+      expect(reviewsScope.isDone()).toEqual(true);
+      expect(compareScope.isDone()).toEqual(true);
+    });
+  });
+
   describe('pull request ready state filtering', () => {
     const readyPull = clonePull();
     const draftPull = Object.assign(clonePull(), { draft: true });

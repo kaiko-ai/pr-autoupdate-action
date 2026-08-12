@@ -14,6 +14,21 @@ export class ConfigLoader {
     return val === 'true';
   }
 
+  /**
+   * Whether a pull request must carry an approving review before its branch is
+   * updated. Off by default, so existing configurations are unaffected.
+   *
+   * An approval is the signal that someone intends to merge. Waiting for it
+   * avoids updating - and so re-running CI on - pull requests that are still
+   * waiting to be looked at. Deliberately not "all checks are green": a check
+   * can be pending because the branch is stale, and gating the update on it
+   * would be circular. An approval never depends on how fresh the branch is.
+   */
+  requireApproval(): boolean {
+    const val = this.getValue('REQUIRE_APPROVAL', false, 'false');
+    return val === 'true';
+  }
+
   pullRequestFilter(): string {
     // one of 'all', 'protected', 'labelled' or 'auto_merge'.
     return this.getValue('PR_FILTER', false, 'all');
